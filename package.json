@@ -1,6 +1,6 @@
 {
   "name": "@gzgroup/inappbrowser",
-  "version": "7.2.16",
+  "version": "7.2.17",
   "description": "Capacitor plugin in app browser",
   "main": "dist/plugin.cjs.js",
   "module": "dist/esm/index.js",
@@ -11,7 +11,7 @@
     "android/build.gradle",
     "dist/",
     "ios/Plugin/",
-    "CapgoInappbrowser.podspec"
+    "GzgroupInappbrowser.podspec"
   ],
   "author": "Martin Donadieu <martin@capgo.app>",
   "license": "MIT",
