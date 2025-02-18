@@ -1,5 +1,5 @@
 {
-  "name": "@capgo/inappbrowser",
+  "name": "@gzgroup/inappbrowser",
   "version": "7.2.16",
   "description": "Capacitor plugin in app browser",
   "main": "dist/plugin.cjs.js",
@@ -17,10 +17,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Cap-go/capacitor-inappbrowser.git"
+    "url": "git+https://github.com/gabrielezurla/capacitor-inappbrowser.git"
   },
   "bugs": {
-    "url": "https://github.com/Cap-go/capacitor-inappbrowser/issues"
+    "url": "https://github.com/gabrielezurla/capacitor-inappbrowser/issues"
   },
   "keywords": [
     "capacitor",
@@ -28,6 +28,9 @@
     "browser",
     "native"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "verify": "npm run verify:ios && npm run verify:android && npm run verify:web",
     "verify:ios": "cd ios && pod install && xcodebuild -workspace Plugin.xcworkspace -sdk iphoneos -scheme Plugin && cd ..",
