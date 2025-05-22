@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [7.9.3](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.9.2...7.9.3) (2025-05-08)
+
+
+### Bug Fixes
+
+* event listener ios not working ([6361696](https://github.com/Cap-go/capacitor-inappbrowser/commit/6361696e33994552a2ceb0011dd38bb432038641))
+
+### [7.9.2](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.9.1...7.9.2) (2025-04-28)
+
+### [7.9.1](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.9.0...7.9.1) (2025-04-28)
+
+## [7.9.0](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.8.0...7.9.0) (2025-04-21)
+
+
+### Features
+
+* add SPM ([7e49bac](https://github.com/Cap-go/capacitor-inappbrowser/commit/7e49bac0f0e374bbf3742559fdb79bbf55e524b7))
+
+## [7.8.0](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.7.3...7.8.0) (2025-04-21)
+
+
+### Features
+
+* add an explicit mode for a toolbar with just a close button ([df78b97](https://github.com/Cap-go/capacitor-inappbrowser/commit/df78b9747ed8af26c2be3d40a8d6b10de099d0f3)), closes [#272](https://github.com/Cap-go/capacitor-inappbrowser/issues/272)
+
+### [7.7.3](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.7.2...7.7.3) (2025-04-21)
+
+
+### Bug Fixes
+
+* JS alert ([0ab11ad](https://github.com/Cap-go/capacitor-inappbrowser/commit/0ab11ad14539dafe176c1c59b9ee92a134b45375))
+
 ### [7.7.2](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.7.1...7.7.2) (2025-03-31)
 
 
