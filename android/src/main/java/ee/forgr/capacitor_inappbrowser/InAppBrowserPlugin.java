@@ -21,6 +21,7 @@ import androidx.browser.customtabs.CustomTabsClient;
 import androidx.browser.customtabs.CustomTabsIntent;
 import androidx.browser.customtabs.CustomTabsServiceConnection;
 import androidx.browser.customtabs.CustomTabsSession;
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
@@ -32,6 +33,7 @@ import com.getcapacitor.annotation.PermissionCallback;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import org.json.JSONException;
@@ -251,18 +253,34 @@ public class InAppBrowserPlugin
     String url = call.getString("url");
     if (url == null || TextUtils.isEmpty(url)) {
       call.reject("Invalid URL");
+      return;
     }
+
+    if (webViewDialog == null) {
+      call.reject("WebView is not initialized");
+      return;
+    }
+
     currentUrl = url;
     this.getActivity()
       .runOnUiThread(
         new Runnable() {
           @Override
           public void run() {
-            webViewDialog.setUrl(url);
+            try {
+              if (webViewDialog != null) {
+                webViewDialog.setUrl(url);
+                call.resolve();
+              } else {
+                call.reject("WebView is not initialized");
+              }
+            } catch (Exception e) {
+              Log.e("InAppBrowser", "Error setting URL: " + e.getMessage());
+              call.reject("Failed to set URL: " + e.getMessage());
+            }
           }
         }
       );
-    call.resolve();
   }
 
   @PluginMethod
@@ -396,12 +414,23 @@ public class InAppBrowserPlugin
         new Runnable() {
           @Override
           public void run() {
-            webViewDialog.executeScript(scriptToRun.toString());
+            try {
+              if (webViewDialog != null) {
+                webViewDialog.executeScript(scriptToRun.toString());
+                call.resolve();
+              } else {
+                call.reject("WebView is not initialized");
+              }
+            } catch (Exception e) {
+              Log.e(
+                "InAppBrowser",
+                "Error clearing cookies: " + e.getMessage()
+              );
+              call.reject("Failed to clear cookies: " + e.getMessage());
+            }
           }
         }
       );
-
-    call.resolve();
   }
 
   @PluginMethod
@@ -409,22 +438,21 @@ public class InAppBrowserPlugin
     String url = call.getString("url");
     if (url == null || TextUtils.isEmpty(url)) {
       call.reject("Invalid URL");
-    } else {
-      CookieManager cookieManager = CookieManager.getInstance();
-      String cookieString = cookieManager.getCookie(url);
-      if (cookieString != null) {
-        String[] cookiePairs = cookieString.split("; ");
-        JSObject result = new JSObject();
-        for (String cookie : cookiePairs) {
-          String[] parts = cookie.split("=", 2);
-          if (parts.length == 2) {
-            result.put(parts[0], parts[1]);
-          }
-        }
-        call.resolve(result);
-      }
-      call.resolve(new JSObject());
+      return;
     }
+    CookieManager cookieManager = CookieManager.getInstance();
+    String cookieString = cookieManager.getCookie(url);
+    JSObject result = new JSObject();
+    if (cookieString != null) {
+      String[] cookiePairs = cookieString.split("; ");
+      for (String cookie : cookiePairs) {
+        String[] parts = cookie.split("=", 2);
+        if (parts.length == 2) {
+          result.put(parts[0], parts[1]);
+        }
+      }
+    }
+    call.resolve(result);
   }
 
   @PluginMethod
@@ -450,7 +478,7 @@ public class InAppBrowserPlugin
       options.setTitle(call.getString("title", ""));
     }
     options.setToolbarColor(call.getString("toolbarColor", "#ffffff"));
-    options.setBackgroundColor(call.getString("backgroundColor", "black"));
+    options.setBackgroundColor(call.getString("backgroundColor", "white"));
     options.setToolbarTextColor(call.getString("toolbarTextColor"));
     options.setArrow(Boolean.TRUE.equals(call.getBoolean("showArrow", false)));
     options.setIgnoreUntrustedSSLError(
@@ -697,6 +725,33 @@ public class InAppBrowserPlugin
         }
       }
     );
+
+    JSArray jsAuthorizedLinks = call.getArray("authorizedAppLinks");
+    if (jsAuthorizedLinks != null && jsAuthorizedLinks.length() > 0) {
+      List<String> authorizedLinks = new ArrayList<>();
+      for (int i = 0; i < jsAuthorizedLinks.length(); i++) {
+        try {
+          String link = jsAuthorizedLinks.getString(i);
+          if (link != null && !link.trim().isEmpty()) {
+            authorizedLinks.add(link);
+          }
+        } catch (Exception e) {
+          Log.w(
+            "InAppBrowserPlugin",
+            "Error reading authorized app link at index " + i,
+            e
+          );
+        }
+      }
+      Log.d(
+        "InAppBrowserPlugin",
+        "Parsed authorized app links: " + authorizedLinks
+      );
+      options.setAuthorizedAppLinks(authorizedLinks);
+    } else {
+      Log.d("InAppBrowserPlugin", "No authorized app links provided.");
+    }
+
     this.getActivity()
       .runOnUiThread(
         new Runnable() {
@@ -753,8 +808,12 @@ public class InAppBrowserPlugin
         new Runnable() {
           @Override
           public void run() {
-            webViewDialog.postMessageToJS(eventData);
-            call.resolve();
+            if (webViewDialog != null) {
+              webViewDialog.postMessageToJS(eventData);
+              call.resolve();
+            } else {
+              call.reject("WebView is not initialized");
+            }
           }
         }
       );
@@ -763,39 +822,56 @@ public class InAppBrowserPlugin
   @PluginMethod
   public void executeScript(PluginCall call) {
     String script = call.getString("code");
-    if (script == null || TextUtils.isEmpty(script)) {
-      call.reject("No script to run");
+    if (script == null || script.trim().isEmpty()) {
+      call.reject("Script is required");
+      return;
     }
 
-    if (webViewDialog != null) {
-      this.getActivity()
-        .runOnUiThread(
-          new Runnable() {
-            @Override
-            public void run() {
-              webViewDialog.executeScript(script);
+    if (webViewDialog == null) {
+      call.reject("WebView is not initialized");
+      return;
+    }
+
+    this.getActivity()
+      .runOnUiThread(
+        new Runnable() {
+          @Override
+          public void run() {
+            try {
+              if (webViewDialog != null) {
+                webViewDialog.executeScript(script);
+                call.resolve();
+              } else {
+                call.reject("WebView is not initialized");
+              }
+            } catch (Exception e) {
+              Log.e(
+                "InAppBrowser",
+                "Error executing script: " + e.getMessage()
+              );
+              call.reject("Failed to execute script: " + e.getMessage());
             }
           }
-        );
-    }
-
-    call.resolve();
+        }
+      );
   }
 
   @PluginMethod
   public void reload(PluginCall call) {
-    if (webViewDialog != null) {
-      this.getActivity()
-        .runOnUiThread(
-          new Runnable() {
-            @Override
-            public void run() {
+    this.getActivity()
+      .runOnUiThread(
+        new Runnable() {
+          @Override
+          public void run() {
+            if (webViewDialog != null) {
               webViewDialog.reload();
+              call.resolve();
+            } else {
+              call.reject("WebView is not initialized");
             }
           }
-        );
-    }
-    call.resolve();
+        }
+      );
   }
 
   @PluginMethod
@@ -820,27 +896,80 @@ public class InAppBrowserPlugin
 
   @PluginMethod
   public void close(PluginCall call) {
+    if (webViewDialog == null) {
+      // Fallback: try to bring main activity to foreground
+      try {
+        Intent intent = new Intent(
+          getContext(),
+          getBridge().getActivity().getClass()
+        );
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        getContext().startActivity(intent);
+        call.resolve();
+      } catch (Exception e) {
+        Log.e(
+          "InAppBrowser",
+          "Error bringing main activity to foreground: " + e.getMessage()
+        );
+        call.reject(
+          "WebView is not initialized and failed to restore main activity"
+        );
+      }
+      return;
+    }
+
     this.getActivity()
       .runOnUiThread(
         new Runnable() {
           @Override
           public void run() {
-            if (webViewDialog != null) {
-              notifyListeners(
-                "closeEvent",
-                new JSObject().put("url", webViewDialog.getUrl())
-              );
-              webViewDialog.dismiss();
-              webViewDialog = null;
-            } else {
-              Intent intent = new Intent(
-                getContext(),
-                getBridge().getActivity().getClass()
-              );
-              intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-              getContext().startActivity(intent);
+            try {
+              if (webViewDialog != null) {
+                String currentUrl = "";
+                try {
+                  currentUrl = webViewDialog.getUrl();
+                  if (currentUrl == null) {
+                    currentUrl = "";
+                  }
+                } catch (Exception e) {
+                  Log.e(
+                    "InAppBrowser",
+                    "Error getting URL before close: " + e.getMessage()
+                  );
+                  currentUrl = "";
+                }
+
+                // Notify listeners about the close event
+                notifyListeners(
+                  "closeEvent",
+                  new JSObject().put("url", currentUrl)
+                );
+
+                webViewDialog.dismiss();
+                webViewDialog = null;
+                call.resolve();
+              } else {
+                // Secondary fallback inside UI thread
+                try {
+                  Intent intent = new Intent(
+                    getContext(),
+                    getBridge().getActivity().getClass()
+                  );
+                  intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  getContext().startActivity(intent);
+                  call.resolve();
+                } catch (Exception e) {
+                  Log.e(
+                    "InAppBrowser",
+                    "Error in secondary fallback: " + e.getMessage()
+                  );
+                  call.reject("WebView is not initialized");
+                }
+              }
+            } catch (Exception e) {
+              Log.e("InAppBrowser", "Error closing WebView: " + e.getMessage());
+              call.reject("Failed to close WebView: " + e.getMessage());
             }
-            call.resolve();
           }
         }
       );

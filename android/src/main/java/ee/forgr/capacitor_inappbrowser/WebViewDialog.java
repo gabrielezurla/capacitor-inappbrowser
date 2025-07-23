@@ -24,6 +24,8 @@ import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintManager;
 import android.provider.MediaStore;
+import android.security.KeyChain;
+import android.security.KeyChainAliasCallback;
 import android.text.TextUtils;
 import android.util.Base64;
 import android.util.Log;
@@ -65,9 +67,12 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
+import java.security.PrivateKey;
+import java.security.cert.X509Certificate;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -160,6 +165,15 @@ public class WebViewDialog extends Dialog {
           Log.e("InAppBrowser", "Received empty message from WebView");
           return;
         }
+
+        if (_options == null || _options.getCallbacks() == null) {
+          Log.e(
+            "InAppBrowser",
+            "Cannot handle postMessage - options or callbacks are null"
+          );
+          return;
+        }
+
         _options.getCallbacks().javascriptCallback(message);
       } catch (Exception e) {
         Log.e("InAppBrowser", "Error in postMessage: " + e.getMessage());
@@ -170,19 +184,23 @@ public class WebViewDialog extends Dialog {
     public void close() {
       try {
         // close webview safely
-        if (activity != null) {
-          activity.runOnUiThread(() -> {
-            try {
-              String currentUrl = _webView != null ? _webView.getUrl() : "";
-              dismiss();
-              if (_options != null && _options.getCallbacks() != null) {
-                _options.getCallbacks().closeEvent(currentUrl);
-              }
-            } catch (Exception e) {
-              Log.e("InAppBrowser", "Error closing WebView: " + e.getMessage());
-            }
-          });
+        if (activity == null) {
+          Log.e("InAppBrowser", "Cannot close - activity is null");
+          return;
         }
+
+        activity.runOnUiThread(() -> {
+          try {
+            String currentUrl = getUrl();
+            dismiss();
+
+            if (_options != null && _options.getCallbacks() != null) {
+              _options.getCallbacks().closeEvent(currentUrl);
+            }
+          } catch (Exception e) {
+            Log.e("InAppBrowser", "Error closing WebView: " + e.getMessage());
+          }
+        });
       } catch (Exception e) {
         Log.e("InAppBrowser", "Error in close: " + e.getMessage());
       }
@@ -264,6 +282,15 @@ public class WebViewDialog extends Dialog {
       WindowManager.LayoutParams.FLAG_FULLSCREEN
     );
     setContentView(R.layout.activity_browser);
+
+    // Set fitsSystemWindows only for Android 10 (API 29)
+    if (android.os.Build.VERSION.SDK_INT == android.os.Build.VERSION_CODES.Q) {
+      View coordinator = findViewById(R.id.coordinator_layout);
+      if (coordinator != null) coordinator.setFitsSystemWindows(true);
+      View appBar = findViewById(R.id.app_bar_layout);
+      if (appBar != null) appBar.setFitsSystemWindows(true);
+    }
+
     getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
 
     // Make status bar transparent
@@ -410,11 +437,7 @@ public class WebViewDialog extends Dialog {
           // DEBUG: Log details about the file chooser request
           Log.d("InAppBrowser", "onShowFileChooser called");
           Log.d("InAppBrowser", "Accept type: " + acceptType);
-          Log.d(
-            "InAppBrowser",
-            "Current URL: " +
-            (webView.getUrl() != null ? webView.getUrl() : "null")
-          );
+          Log.d("InAppBrowser", "Current URL: " + getUrl());
           Log.d(
             "InAppBrowser",
             "Original URL: " +
@@ -443,7 +466,7 @@ public class WebViewDialog extends Dialog {
           // Direct check for capture attribute in URL (fallback method)
           boolean isCaptureInUrl;
           String captureMode;
-          String currentUrl = webView.getUrl();
+          String currentUrl = getUrl();
 
           // Look for capture in URL parameters - sometimes the attribute shows up in URL
           if (currentUrl != null && currentUrl.contains("capture=")) {
@@ -478,43 +501,48 @@ public class WebViewDialog extends Dialog {
 
             // Fixed JavaScript with proper error handling
             String js =
-              "try {" +
-              "  (function() {" +
-              "    var captureAttr = null;" +
-              "    // Check active element first" +
-              "    if (document.activeElement && " +
-              "        document.activeElement.tagName === 'INPUT' && " +
-              "        document.activeElement.type === 'file') {" +
-              "      if (document.activeElement.hasAttribute('capture')) {" +
-              "        captureAttr = document.activeElement.getAttribute('capture') || 'environment';" +
-              "        return captureAttr;" +
-              "      }" +
-              "    }" +
-              "    // Try to find any input with capture attribute" +
-              "    var inputs = document.querySelectorAll('input[type=\"file\"][capture]');" +
-              "    if (inputs && inputs.length > 0) {" +
-              "      captureAttr = inputs[0].getAttribute('capture') || 'environment';" +
-              "      return captureAttr;" +
-              "    }" +
-              "    // Try to extract from HTML attributes" +
-              "    var allInputs = document.getElementsByTagName('input');" +
-              "    for (var i = 0; i < allInputs.length; i++) {" +
-              "      var input = allInputs[i];" +
-              "      if (input.type === 'file') {" +
-              "        if (input.hasAttribute('capture')) {" +
-              "          captureAttr = input.getAttribute('capture') || 'environment';" +
-              "          return captureAttr;" +
-              "        }" +
-              "        // Look for the accept attribute containing image/* as this might be a camera input" +
-              "        var acceptAttr = input.getAttribute('accept');" +
-              "        if (acceptAttr && acceptAttr.indexOf('image/*') >= 0) {" +
-              "          console.log('Found input with image/* accept');" +
-              "        }" +
-              "      }" +
-              "    }" +
-              "    return '';" +
-              "  })();" +
-              "} catch(e) { console.error('Capture detection error:', e); return ''; }";
+              """
+              try {
+                (function() {
+                  var captureAttr = null;
+                  // Check active element first
+                  if (document.activeElement &&
+                      document.activeElement.tagName === 'INPUT' &&
+                      document.activeElement.type === 'file') {
+                    if (document.activeElement.hasAttribute('capture')) {
+                      captureAttr = document.activeElement.getAttribute('capture') || 'environment';
+                      return captureAttr;
+                    }
+                  }
+                  // Try to find any input with capture attribute
+                  var inputs = document.querySelectorAll('input[type="file"][capture]');
+                  if (inputs && inputs.length > 0) {
+                    captureAttr = inputs[0].getAttribute('capture') || 'environment';
+                    return captureAttr;
+                  }
+                  // Try to extract from HTML attributes
+                  var allInputs = document.getElementsByTagName('input');
+                  for (var i = 0; i < allInputs.length; i++) {
+                    var input = allInputs[i];
+                    if (input.type === 'file') {
+                      if (input.hasAttribute('capture')) {
+                        captureAttr = input.getAttribute('capture') || 'environment';
+                        return captureAttr;
+                      }
+                      // Look for the accept attribute containing image/* as this might be a camera input
+                      var acceptAttr = input.getAttribute('accept');
+                      if (acceptAttr && acceptAttr.indexOf('image/*') >= 0) {
+                        console.log('Found input with image/* accept');
+                      }
+                    }
+                  }
+                  return '';
+                })();
+              } catch(e) {
+                console.error('Capture detection error:', e);
+                return '';
+              }
+              """;
 
             webView.evaluateJavascript(js, value -> {
               Log.d("InAppBrowser", "Capture attribute JS result: " + value);
@@ -844,6 +872,18 @@ public class WebViewDialog extends Dialog {
     _webView.requestFocus();
     _webView.requestFocusFromTouch();
 
+    // Inject JavaScript interface early to ensure it's available immediately
+    // This complements the injection in onPageFinished and doUpdateVisitedHistory
+    _webView.post(() -> {
+      if (_webView != null) {
+        injectJavaScriptInterface();
+        Log.d(
+          "InAppBrowser",
+          "JavaScript interface injected early after URL load"
+        );
+      }
+    });
+
     setupToolbar();
     setWebViewClient();
 
@@ -939,7 +979,7 @@ public class WebViewDialog extends Dialog {
       }
     }
 
-    // Apply system insets to WebView (compatible with all Android versions)
+    // Apply system insets to WebView content view (compatible with all Android versions)
     ViewCompat.setOnApplyWindowInsetsListener(_webView, (v, windowInsets) -> {
       Insets insets = windowInsets.getInsets(
         WindowInsetsCompat.Type.systemBars()
@@ -962,9 +1002,13 @@ public class WebViewDialog extends Dialog {
         // On Android 15+, don't add top margin as it's handled by AppBarLayout
         mlp.topMargin = 0;
       } else {
-        // Original behavior for older Android versions
-        mlp.topMargin = insets.top;
-        mlp.bottomMargin = insets.bottom;
+        // For all other Android versions, ensure bottom margin respects navigation bar
+        mlp.topMargin = 0; // Top is handled by toolbar
+        if (keyboardVisible) {
+          mlp.bottomMargin = 0;
+        } else {
+          mlp.bottomMargin = insets.bottom;
+        }
       }
 
       // These stay the same for all Android versions
@@ -975,65 +1019,79 @@ public class WebViewDialog extends Dialog {
       return WindowInsetsCompat.CONSUMED;
     });
 
-    // Handle window decoration - version-specific window settings
+    // Handle window decoration - version-specific handling
     if (getWindow() != null) {
       if (isAndroid15Plus) {
-        // Only for Android 15+: Set window to draw behind status bar
+        // Android 15+: Use edge-to-edge with proper insets handling
         getWindow().setDecorFitsSystemWindows(false);
         getWindow().setStatusBarColor(Color.TRANSPARENT);
+        getWindow().setNavigationBarColor(Color.TRANSPARENT);
 
-        // Set status bar text color
-        int backgroundColor;
-        if (
-          _options.getToolbarColor() != null &&
-          !_options.getToolbarColor().isEmpty()
-        ) {
-          try {
-            backgroundColor = Color.parseColor(_options.getToolbarColor());
-            boolean isDarkBackground = isDarkColor(backgroundColor);
-            WindowInsetsControllerCompat controller =
-              new WindowInsetsControllerCompat(
-                getWindow(),
-                getWindow().getDecorView()
-              );
-            controller.setAppearanceLightStatusBars(!isDarkBackground);
-          } catch (IllegalArgumentException e) {
-            // Ignore color parsing errors
-          }
-        }
-      } else if (Build.VERSION.SDK_INT >= 30) {
-        // Android 11-14: Use original behavior
         WindowInsetsControllerCompat controller =
           new WindowInsetsControllerCompat(
             getWindow(),
             getWindow().getDecorView()
           );
 
-        // Original behavior for status bar color
+        // Set status bar text color
         if (
           _options.getToolbarColor() != null &&
           !_options.getToolbarColor().isEmpty()
         ) {
           try {
-            int toolbarColor = Color.parseColor(_options.getToolbarColor());
-            getWindow().setStatusBarColor(toolbarColor);
-
-            boolean isDarkBackground = isDarkColor(toolbarColor);
+            int backgroundColor = Color.parseColor(_options.getToolbarColor());
+            boolean isDarkBackground = isDarkColor(backgroundColor);
             controller.setAppearanceLightStatusBars(!isDarkBackground);
           } catch (IllegalArgumentException e) {
             // Ignore color parsing errors
           }
         }
+      } else if (Build.VERSION.SDK_INT >= 30) {
+        // Android 11-14: Keep navigation bar transparent but respect status bar
+        getWindow().setNavigationBarColor(Color.TRANSPARENT);
+
+        WindowInsetsControllerCompat controller =
+          new WindowInsetsControllerCompat(
+            getWindow(),
+            getWindow().getDecorView()
+          );
+
+        // Set status bar color to match toolbar or use system default
+        if (
+          _options.getToolbarColor() != null &&
+          !_options.getToolbarColor().isEmpty()
+        ) {
+          try {
+            int toolbarColor = Color.parseColor(_options.getToolbarColor());
+            getWindow().setStatusBarColor(toolbarColor);
+            boolean isDarkBackground = isDarkColor(toolbarColor);
+            controller.setAppearanceLightStatusBars(!isDarkBackground);
+          } catch (IllegalArgumentException e) {
+            // Follow system theme if color parsing fails
+            boolean isDarkTheme = isDarkThemeEnabled();
+            int statusBarColor = isDarkTheme ? Color.BLACK : Color.WHITE;
+            getWindow().setStatusBarColor(statusBarColor);
+            controller.setAppearanceLightStatusBars(!isDarkTheme);
+          }
+        } else {
+          // Follow system theme if no toolbar color provided
+          boolean isDarkTheme = isDarkThemeEnabled();
+          int statusBarColor = isDarkTheme ? Color.BLACK : Color.WHITE;
+          getWindow().setStatusBarColor(statusBarColor);
+          controller.setAppearanceLightStatusBars(!isDarkTheme);
+        }
       } else {
-        // Pre-Android 11: Original behavior with deprecated flags
+        // Pre-Android 11: Use deprecated flags for edge-to-edge navigation bar only
         getWindow()
           .getDecorView()
           .setSystemUiVisibility(
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE |
-            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
           );
 
-        // Apply original status bar color logic
+        getWindow().setNavigationBarColor(Color.TRANSPARENT);
+
+        // Set status bar color to match toolbar
         if (
           _options.getToolbarColor() != null &&
           !_options.getToolbarColor().isEmpty()
@@ -1042,7 +1100,7 @@ public class WebViewDialog extends Dialog {
             int toolbarColor = Color.parseColor(_options.getToolbarColor());
             getWindow().setStatusBarColor(toolbarColor);
           } catch (IllegalArgumentException e) {
-            // Ignore color parsing errors
+            // Use system default
           }
         }
       }
@@ -1055,11 +1113,15 @@ public class WebViewDialog extends Dialog {
         JSONObject jsonObject = new JSONObject();
         jsonObject.put("detail", detail);
         String jsonDetail = jsonObject.toString();
-        String script =
-          "window.dispatchEvent(new CustomEvent('messageFromNative', " +
-          jsonDetail +
-          "));";
-        _webView.post(() -> _webView.evaluateJavascript(script, null));
+        String script = String.format(
+          "window.dispatchEvent(new CustomEvent('messageFromNative', %s));",
+          jsonDetail
+        );
+        _webView.post(() -> {
+          if (_webView != null) {
+            _webView.evaluateJavascript(script, null);
+          }
+        });
       } catch (Exception e) {
         Log.e(
           "postMessageToJS",
@@ -1070,26 +1132,87 @@ public class WebViewDialog extends Dialog {
   }
 
   private void injectJavaScriptInterface() {
-    String script =
-      "if (!window.mobileApp) { " +
-      "    window.mobileApp = { " +
-      "        postMessage: function(message) { " +
-      "            if (window.AndroidInterface) { " +
-      "                window.AndroidInterface.postMessage(JSON.stringify(message)); " +
-      "            } " +
-      "        }, " +
-      "        close: function() { " +
-      "            window.AndroidInterface.close(); " +
-      "        } " +
-      "    }; " +
-      "} " +
-      // Override the window.print function to use our PrintInterface
-      "window.print = function() { " +
-      "    if (window.PrintInterface) { " +
-      "        window.PrintInterface.print(); " +
-      "    } " +
-      "};";
-    _webView.evaluateJavascript(script, null);
+    if (_webView == null) {
+      Log.w(
+        "InAppBrowser",
+        "Cannot inject JavaScript interface - WebView is null"
+      );
+      return;
+    }
+
+    try {
+      String script =
+        """
+        (function() {
+          if (window.AndroidInterface) {
+            // Create mobileApp object for backward compatibility
+            if (!window.mobileApp) {
+              window.mobileApp = {
+                postMessage: function(message) {
+                  try {
+                    var msg = typeof message === 'string' ? message : JSON.stringify(message);
+                    window.AndroidInterface.postMessage(msg);
+                  } catch(e) {
+                    console.error('Error in mobileApp.postMessage:', e);
+                  }
+                },
+                close: function() {
+                  try {
+                    window.AndroidInterface.close();
+                  } catch(e) {
+                    console.error('Error in mobileApp.close:', e);
+                  }
+                }
+              };
+            }
+            // Also provide direct window methods for convenience
+            window.postMessage = function(data) {
+              try {
+                var message = typeof data === 'string' ? data : JSON.stringify(data);
+                window.AndroidInterface.postMessage(message);
+              } catch(e) {
+                console.error('Error in postMessage:', e);
+              }
+            };
+            window.close = function() {
+              try {
+                window.AndroidInterface.close();
+              } catch(e) {
+                console.error('Error in close:', e);
+              }
+            };
+          }
+          // Override window.print function to use our PrintInterface
+          if (window.PrintInterface) {
+            window.print = function() {
+              try {
+                window.PrintInterface.print();
+              } catch(e) {
+                console.error('Error in print:', e);
+              }
+            };
+          }
+        })();
+        """;
+
+      _webView.post(() -> {
+        if (_webView != null) {
+          try {
+            _webView.evaluateJavascript(script, null);
+          } catch (Exception e) {
+            Log.e(
+              "InAppBrowser",
+              "Error injecting JavaScript interface: " + e.getMessage()
+            );
+          }
+        }
+      });
+    } catch (Exception e) {
+      Log.e(
+        "InAppBrowser",
+        "Error preparing JavaScript interface: " + e.getMessage()
+      );
+    }
   }
 
   private void injectPreShowScript() {
@@ -1100,12 +1223,20 @@ public class WebViewDialog extends Dialog {
       return;
     }
 
-    String script =
-      "async function preShowFunction() {\n" +
-      _options.getPreShowScript() +
-      '\n' +
-      "};\n" +
-      "preShowFunction().then(() => window.PreShowScriptInterface.success()).catch(err => { console.error('Pre show error', err); window.PreShowScriptInterface.error(JSON.stringify(err, Object.getOwnPropertyNames(err))) })";
+    String script = String.format(
+      """
+      async function preShowFunction() {
+        %s
+      }
+      preShowFunction()
+        .then(() => window.PreShowScriptInterface.success())
+        .catch(err => {
+          console.error('Pre show error', err);
+          window.PreShowScriptInterface.error(JSON.stringify(err, Object.getOwnPropertyNames(err)));
+        });
+      """,
+      _options.getPreShowScript()
+    );
 
     Log.i(
       "InjectPreShowScript",
@@ -1117,7 +1248,14 @@ public class WebViewDialog extends Dialog {
       new Runnable() {
         @Override
         public void run() {
-          _webView.evaluateJavascript(script, null);
+          if (_webView != null) {
+            _webView.evaluateJavascript(script, null);
+          } else {
+            // If WebView is null, release semaphore to prevent deadlock
+            if (preShowSemaphore != null) {
+              preShowSemaphore.release();
+            }
+          }
         }
       }
     );
@@ -1308,51 +1446,100 @@ public class WebViewDialog extends Dialog {
   }
 
   public void reload() {
-    if (_webView != null) {
+    if (_webView == null) {
+      Log.w("InAppBrowser", "Cannot reload - WebView is null");
+      return;
+    }
+
+    try {
       // First stop any ongoing loading
       _webView.stopLoading();
 
       // Check if there's a URL to reload
-      if (_webView.getUrl() != null) {
+      String currentUrl = getUrl();
+      if (currentUrl != null && !currentUrl.equals("about:blank")) {
         // Reload the current page
         _webView.reload();
-        Log.d("InAppBrowser", "Reloading page: " + _webView.getUrl());
+        Log.d("InAppBrowser", "Reloading page: " + currentUrl);
       } else if (_options != null && _options.getUrl() != null) {
         // If webView URL is null but we have an initial URL, load that
         setUrl(_options.getUrl());
         Log.d("InAppBrowser", "Loading initial URL: " + _options.getUrl());
+      } else {
+        Log.w("InAppBrowser", "Cannot reload - no valid URL available");
       }
+    } catch (Exception e) {
+      Log.e("InAppBrowser", "Error during reload: " + e.getMessage());
     }
   }
 
   public void destroy() {
-    _webView.destroy();
+    if (_webView != null) {
+      _webView.destroy();
+    }
   }
 
   public String getUrl() {
-    return _webView.getUrl();
+    try {
+      WebView webView = _webView;
+      if (webView != null) {
+        String url = webView.getUrl();
+        return url != null ? url : "";
+      }
+    } catch (Exception e) {
+      Log.w("InAppBrowser", "Error getting URL: " + e.getMessage());
+    }
+    return "";
   }
 
   public void executeScript(String script) {
-    _webView.evaluateJavascript(script, null);
+    if (_webView == null) {
+      Log.w("InAppBrowser", "Cannot execute script - WebView is null");
+      return;
+    }
+
+    if (script == null || script.trim().isEmpty()) {
+      Log.w("InAppBrowser", "Cannot execute empty script");
+      return;
+    }
+
+    try {
+      _webView.evaluateJavascript(script, null);
+    } catch (Exception e) {
+      Log.e("InAppBrowser", "Error executing script: " + e.getMessage());
+    }
   }
 
   public void setUrl(String url) {
-    Map<String, String> requestHeaders = new HashMap<>();
-    if (_options.getHeaders() != null) {
-      Iterator<String> keys = _options.getHeaders().keys();
-      while (keys.hasNext()) {
-        String key = keys.next();
-        if (TextUtils.equals(key.toLowerCase(), "user-agent")) {
-          _webView
-            .getSettings()
-            .setUserAgentString(_options.getHeaders().getString(key));
-        } else {
-          requestHeaders.put(key, _options.getHeaders().getString(key));
+    if (_webView == null) {
+      Log.w("InAppBrowser", "Cannot set URL - WebView is null");
+      return;
+    }
+
+    if (url == null || url.trim().isEmpty()) {
+      Log.w("InAppBrowser", "Cannot set empty URL");
+      return;
+    }
+
+    try {
+      Map<String, String> requestHeaders = new HashMap<>();
+      if (_options.getHeaders() != null) {
+        Iterator<String> keys = _options.getHeaders().keys();
+        while (keys.hasNext()) {
+          String key = keys.next();
+          if (TextUtils.equals(key.toLowerCase(), "user-agent")) {
+            _webView
+              .getSettings()
+              .setUserAgentString(_options.getHeaders().getString(key));
+          } else {
+            requestHeaders.put(key, _options.getHeaders().getString(key));
+          }
         }
       }
+      _webView.loadUrl(url, requestHeaders);
+    } catch (Exception e) {
+      Log.e("InAppBrowser", "Error setting URL: " + e.getMessage());
     }
-    _webView.loadUrl(url, requestHeaders);
   }
 
   private void setTitle(String newTitleText) {
@@ -1444,9 +1631,7 @@ public class WebViewDialog extends Dialog {
                 new OnClickListener() {
                   public void onClick(DialogInterface dialog, int which) {
                     // Close button clicked, do something
-                    String currentUrl = _webView != null
-                      ? _webView.getUrl()
-                      : "";
+                    String currentUrl = getUrl();
                     dismiss();
                     if (_options != null && _options.getCallbacks() != null) {
                       _options.getCallbacks().closeEvent(currentUrl);
@@ -1457,7 +1642,7 @@ public class WebViewDialog extends Dialog {
               .setNegativeButton(_options.getCloseModalCancel(), null)
               .show();
           } else {
-            String currentUrl = _webView != null ? _webView.getUrl() : "";
+            String currentUrl = getUrl();
             dismiss();
             if (_options != null && _options.getCallbacks() != null) {
               _options.getCallbacks().closeEvent(currentUrl);
@@ -1487,10 +1672,11 @@ public class WebViewDialog extends Dialog {
               _webView.stopLoading();
 
               // Check if there's a URL to reload
-              if (_webView.getUrl() != null) {
+              String currentUrl = getUrl();
+              if (currentUrl != null) {
                 // Reload the current page
                 _webView.reload();
-                Log.d("InAppBrowser", "Reloading page: " + _webView.getUrl());
+                Log.d("InAppBrowser", "Reloading page: " + currentUrl);
               } else if (_options.getUrl() != null) {
                 // If webView URL is null but we have an initial URL, load that
                 setUrl(_options.getUrl());
@@ -1930,23 +2116,103 @@ public class WebViewDialog extends Dialog {
   private void setWebViewClient() {
     _webView.setWebViewClient(
       new WebViewClient() {
+        /**
+         * Checks whether the given URL is authorized based on the provided list of authorized links.
+         * <p>
+         * For http(s) URLs, compares only the host (ignoring "www." prefix and case).
+         * Each entry in authorizedLinks should be a base URL (e.g., "https://example.com").
+         * If the host of the input URL matches (case-insensitive) the host of any authorized link, returns true.
+         * <p>
+         * This method is intended to limit which external links can be handled as authorized app links.
+         *
+         * @param url             The URL to check. Can be any valid absolute URL.
+         * @param authorizedLinks List of authorized base URLs (e.g., "https://mydomain.com", "myapp://").
+         * @return true if the URL is authorized (host matches one of the authorizedLinks); false otherwise.
+         */
+        private boolean isUrlAuthorized(
+          String url,
+          List<String> authorizedLinks
+        ) {
+          if (
+            authorizedLinks == null || authorizedLinks.isEmpty() || url == null
+          ) {
+            return false;
+          }
+          try {
+            URI uri = new URI(url);
+            String urlHost = uri.getHost();
+            if (urlHost == null) return false;
+            if (urlHost.startsWith("www.")) urlHost = urlHost.substring(4);
+            for (String authorized : authorizedLinks) {
+              URI authUri = new URI(authorized);
+              String authHost = authUri.getHost();
+              if (authHost == null) continue;
+              if (authHost.startsWith("www.")) authHost = authHost.substring(4);
+              if (urlHost.equalsIgnoreCase(authHost)) {
+                return true;
+              }
+            }
+          } catch (URISyntaxException e) {
+            Log.e("InAppBrowser", "Invalid URI in isUrlAuthorized: " + url, e);
+          }
+          return false;
+        }
+
         @Override
         public boolean shouldOverrideUrlLoading(
           WebView view,
           WebResourceRequest request
         ) {
+          if (view == null || _webView == null) {
+            return false;
+          }
           Context context = view.getContext();
           String url = request.getUrl().toString();
           Log.d("InAppBrowser", "shouldOverrideUrlLoading: " + url);
+
+          boolean isNotHttpOrHttps =
+            !url.startsWith("https://") && !url.startsWith("http://");
+
           // If preventDeeplink is true, don't handle any non-http(s) URLs
           if (_options.getPreventDeeplink()) {
             Log.d("InAppBrowser", "preventDeeplink is true");
-            if (!url.startsWith("https://") && !url.startsWith("http://")) {
+            if (isNotHttpOrHttps) {
               return true;
             }
           }
 
-          if (!url.startsWith("https://") && !url.startsWith("http://")) {
+          // Handle authorized app links
+          List<String> authorizedLinks = _options.getAuthorizedAppLinks();
+          boolean urlAuthorized = isUrlAuthorized(url, authorizedLinks);
+
+          Log.d("InAppBrowser", "authorizedLinks: " + authorizedLinks);
+          Log.d("InAppBrowser", "urlAuthorized: " + urlAuthorized);
+
+          if (urlAuthorized) {
+            try {
+              Log.d(
+                "InAppBrowser",
+                "Launching intent for authorized link: " + url
+              );
+              Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+              intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+              context.startActivity(intent);
+              Log.i(
+                "InAppBrowser",
+                "Intent started for authorized link: " + url
+              );
+              return true;
+            } catch (ActivityNotFoundException e) {
+              Log.e(
+                "InAppBrowser",
+                "No app found to handle this authorized link",
+                e
+              );
+              return false;
+            }
+          }
+
+          if (isNotHttpOrHttps) {
             try {
               Intent intent;
               if (url.startsWith("intent://")) {
@@ -1954,7 +2220,6 @@ public class WebViewDialog extends Dialog {
               } else {
                 intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
               }
-
               intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
               context.startActivity(intent);
               return true;
@@ -1963,6 +2228,109 @@ public class WebViewDialog extends Dialog {
             }
           }
           return false;
+        }
+
+        @Override
+        public void onReceivedClientCertRequest(
+          WebView view,
+          android.webkit.ClientCertRequest request
+        ) {
+          Log.i("InAppBrowser", "onReceivedClientCertRequest CALLED");
+
+          if (request == null) {
+            Log.e("InAppBrowser", "ClientCertRequest is null");
+            return;
+          }
+
+          if (activity == null) {
+            Log.e("InAppBrowser", "Activity is null, canceling request");
+            try {
+              request.cancel();
+            } catch (Exception e) {
+              Log.e(
+                "InAppBrowser",
+                "Error canceling request: " + e.getMessage()
+              );
+            }
+            return;
+          }
+
+          try {
+            Log.i("InAppBrowser", "Host: " + request.getHost());
+            Log.i("InAppBrowser", "Port: " + request.getPort());
+            Log.i(
+              "InAppBrowser",
+              "Principals: " +
+              java.util.Arrays.toString(request.getPrincipals())
+            );
+            Log.i(
+              "InAppBrowser",
+              "KeyTypes: " + java.util.Arrays.toString(request.getKeyTypes())
+            );
+
+            KeyChain.choosePrivateKeyAlias(
+              activity,
+              new KeyChainAliasCallback() {
+                @Override
+                public void alias(String alias) {
+                  if (alias != null) {
+                    try {
+                      PrivateKey privateKey = KeyChain.getPrivateKey(
+                        activity,
+                        alias
+                      );
+                      X509Certificate[] certChain =
+                        KeyChain.getCertificateChain(activity, alias);
+                      request.proceed(privateKey, certChain);
+                      Log.i("InAppBrowser", "Selected certificate: " + alias);
+                    } catch (Exception e) {
+                      try {
+                        request.cancel();
+                      } catch (Exception cancelEx) {
+                        Log.e(
+                          "InAppBrowser",
+                          "Error canceling request: " + cancelEx.getMessage()
+                        );
+                      }
+                      Log.e(
+                        "InAppBrowser",
+                        "Error selecting certificate: " + e.getMessage()
+                      );
+                    }
+                  } else {
+                    try {
+                      request.cancel();
+                    } catch (Exception e) {
+                      Log.e(
+                        "InAppBrowser",
+                        "Error canceling request: " + e.getMessage()
+                      );
+                    }
+                    Log.i("InAppBrowser", "No certificate found");
+                  }
+                }
+              },
+              null, // keyTypes
+              null, // issuers
+              request.getHost(),
+              request.getPort(),
+              null // alias (null = system asks user to choose)
+            );
+          } catch (Exception e) {
+            Log.e(
+              "InAppBrowser",
+              "Error in onReceivedClientCertRequest: " + e.getMessage()
+            );
+            try {
+              request.cancel();
+            } catch (Exception cancelEx) {
+              Log.e(
+                "InAppBrowser",
+                "Error canceling request after exception: " +
+                cancelEx.getMessage()
+              );
+            }
+          }
         }
 
         private String randomRequestId() {
@@ -1988,6 +2356,9 @@ public class WebViewDialog extends Dialog {
           WebView view,
           WebResourceRequest request
         ) {
+          if (view == null || _webView == null) {
+            return null;
+          }
           Pattern pattern = _options.getProxyRequestsPattern();
           if (pattern == null) {
             return null;
@@ -2033,8 +2404,44 @@ public class WebViewDialog extends Dialog {
                     )
                   );
                 }
+                String jsTemplate =
+                  """
+                  try {
+                    function getHeaders() {
+                      const h = {};
+                      %s
+                      return h;
+                    }
+                    window.InAppBrowserProxyRequest(new Request(atob('%s'), {
+                      headers: getHeaders(),
+                      method: '%s'
+                    })).then(async (res) => {
+                      Capacitor.Plugins.InAppBrowser.lsuakdchgbbaHandleProxiedRequest({
+                        ok: true,
+                        result: (!!res ? {
+                          headers: Object.fromEntries(res.headers.entries()),
+                          code: res.status,
+                          body: (await res.text())
+                        } : null),
+                        id: '%s'
+                      });
+                    }).catch((e) => {
+                      Capacitor.Plugins.InAppBrowser.lsuakdchgbbaHandleProxiedRequest({
+                        ok: false,
+                        result: e.toString(),
+                        id: '%s'
+                      });
+                    });
+                  } catch (e) {
+                    Capacitor.Plugins.InAppBrowser.lsuakdchgbbaHandleProxiedRequest({
+                      ok: false,
+                      result: e.toString(),
+                      id: '%s'
+                    });
+                  }
+                  """;
                 String s = String.format(
-                  "try {function getHeaders() {const h = {}; %s return h}; window.InAppBrowserProxyRequest(new Request(atob('%s'), {headers: getHeaders(), method: '%s'})).then(async (res) => Capacitor.Plugins.InAppBrowser.lsuakdchgbbaHandleProxiedRequest({ok: true, result: (!!res ? {headers: Object.fromEntries(res.headers.entries()), code: res.status, body: (await res.text())} : null), id: '%s'})).catch((e) => Capacitor.Plugins.InAppBrowser.lsuakdchgbbaHandleProxiedRequest({ok: false, result: e.toString(), id: '%s'})} catch (e) {Capacitor.Plugins.InAppBrowser.lsuakdchgbbaHandleProxiedRequest({ok: false, result: e.toString(), id: '%s'})}",
+                  jsTemplate,
                   headers,
                   toBase64(request.getUrl().toString()),
                   request.getMethod(),
@@ -2069,6 +2476,12 @@ public class WebViewDialog extends Dialog {
           String host,
           String realm
         ) {
+          if (view == null || _webView == null) {
+            if (handler != null) {
+              handler.cancel();
+            }
+            return;
+          }
           final String sourceUrl = _options.getUrl();
           final String url = view.getUrl();
           final JSObject credentials = _options.getCredentials();
@@ -2132,12 +2545,18 @@ public class WebViewDialog extends Dialog {
 
         @Override
         public void onLoadResource(WebView view, String url) {
+          if (view == null || _webView == null) {
+            return;
+          }
           super.onLoadResource(view, url);
         }
 
         @Override
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
           super.onPageStarted(view, url, favicon);
+          if (view == null || _webView == null) {
+            return;
+          }
           try {
             URI uri = new URI(url);
             if (TextUtils.isEmpty(_options.getTitle())) {
@@ -2153,6 +2572,9 @@ public class WebViewDialog extends Dialog {
           String url,
           boolean isReload
         ) {
+          if (view == null || _webView == null) {
+            return;
+          }
           if (!isReload) {
             _options.getCallbacks().urlChangeEvent(url);
           }
@@ -2163,6 +2585,9 @@ public class WebViewDialog extends Dialog {
         @Override
         public void onPageFinished(WebView view, String url) {
           super.onPageFinished(view, url);
+          if (view == null || _webView == null) {
+            return;
+          }
           if (!isInitialized) {
             isInitialized = true;
             _webView.clearHistory();
@@ -2214,10 +2639,20 @@ public class WebViewDialog extends Dialog {
           }
 
           ImageButton backButton = _toolbar.findViewById(R.id.backButton);
-          if (_webView.canGoBack()) {
+          if (_webView != null && _webView.canGoBack()) {
             backButton.setImageResource(R.drawable.arrow_back_enabled);
             backButton.setEnabled(true);
             backButton.setColorFilter(iconColor);
+            backButton.setOnClickListener(
+              new View.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                  if (_webView != null && _webView.canGoBack()) {
+                    _webView.goBack();
+                  }
+                }
+              }
+            );
           } else {
             backButton.setImageResource(R.drawable.arrow_back_disabled);
             backButton.setEnabled(false);
@@ -2232,10 +2667,20 @@ public class WebViewDialog extends Dialog {
           }
 
           ImageButton forwardButton = _toolbar.findViewById(R.id.forwardButton);
-          if (_webView.canGoForward()) {
+          if (_webView != null && _webView.canGoForward()) {
             forwardButton.setImageResource(R.drawable.arrow_forward_enabled);
             forwardButton.setEnabled(true);
             forwardButton.setColorFilter(iconColor);
+            forwardButton.setOnClickListener(
+              new View.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                  if (_webView != null && _webView.canGoForward()) {
+                    _webView.goForward();
+                  }
+                }
+              }
+            );
           } else {
             forwardButton.setImageResource(R.drawable.arrow_forward_disabled);
             forwardButton.setEnabled(false);
@@ -2260,6 +2705,9 @@ public class WebViewDialog extends Dialog {
           WebResourceError error
         ) {
           super.onReceivedError(view, request, error);
+          if (view == null || _webView == null) {
+            return;
+          }
           _options.getCallbacks().pageLoadError();
         }
 
@@ -2270,6 +2718,12 @@ public class WebViewDialog extends Dialog {
           SslErrorHandler handler,
           SslError error
         ) {
+          if (view == null || _webView == null) {
+            if (handler != null) {
+              handler.cancel();
+            }
+            return;
+          }
           boolean ignoreSSLUntrustedError = _options.ignoreUntrustedSSLError();
           if (
             ignoreSSLUntrustedError &&
@@ -2286,14 +2740,18 @@ public class WebViewDialog extends Dialog {
   @Override
   public void onBackPressed() {
     if (
+      _webView != null &&
       _webView.canGoBack() &&
       (TextUtils.equals(_options.getToolbarType(), "navigation") ||
         _options.getActiveNativeNavigationForWebview())
     ) {
       _webView.goBack();
     } else if (!_options.getDisableGoBackOnNativeApplication()) {
-      _options.getCallbacks().closeEvent(_webView.getUrl());
-      _webView.destroy();
+      String currentUrl = getUrl();
+      _options.getCallbacks().closeEvent(currentUrl);
+      if (_webView != null) {
+        _webView.destroy();
+      }
       super.onBackPressed();
     }
   }
@@ -2351,38 +2809,94 @@ public class WebViewDialog extends Dialog {
 
   @Override
   public void dismiss() {
+    // First, stop any ongoing operations and disable further interactions
     if (_webView != null) {
-      // Reset file inputs to prevent WebView from caching them
-      _webView.evaluateJavascript(
-        "(function() {" +
-        "  var inputs = document.querySelectorAll('input[type=\"file\"]');" +
-        "  for (var i = 0; i < inputs.length; i++) {" +
-        "    inputs[i].value = '';" +
-        "  }" +
-        "  return true;" +
-        "})();",
-        null
-      );
+      try {
+        // Stop loading first to prevent any ongoing operations
+        _webView.stopLoading();
 
-      _webView.loadUrl("about:blank");
-      _webView.onPause();
-      _webView.removeAllViews();
-      _webView.destroy();
-      _webView = null;
+        // Clear any pending callbacks to prevent memory leaks
+        if (mFilePathCallback != null) {
+          mFilePathCallback.onReceiveValue(null);
+          mFilePathCallback = null;
+        }
+        tempCameraUri = null;
+
+        // Clear file inputs for security/privacy before destroying WebView
+        try {
+          String clearInputsScript =
+            """
+            (function() {
+              try {
+                var inputs = document.querySelectorAll('input[type="file"]');
+                for (var i = 0; i < inputs.length; i++) {
+                  inputs[i].value = '';
+                }
+                return true;
+              } catch(e) {
+                console.log('Error clearing file inputs:', e);
+                return false;
+              }
+            })();
+            """;
+          _webView.evaluateJavascript(clearInputsScript, null);
+        } catch (Exception e) {
+          Log.w(
+            "InAppBrowser",
+            "Could not clear file inputs (WebView may be in invalid state): " +
+            e.getMessage()
+          );
+        }
+
+        // Remove JavaScript interfaces before destroying
+        _webView.removeJavascriptInterface("AndroidInterface");
+        _webView.removeJavascriptInterface("PreShowScriptInterface");
+        _webView.removeJavascriptInterface("PrintInterface");
+
+        // Load blank page and cleanup
+        _webView.loadUrl("about:blank");
+        _webView.onPause();
+        _webView.removeAllViews();
+        _webView.destroy();
+        _webView = null;
+      } catch (Exception e) {
+        Log.e(
+          "InAppBrowser",
+          "Error during WebView cleanup: " + e.getMessage()
+        );
+        // Force set to null even if cleanup failed
+        _webView = null;
+      }
     }
 
+    // Shutdown executor service safely
     if (executorService != null && !executorService.isShutdown()) {
-      executorService.shutdown();
       try {
+        executorService.shutdown();
         if (!executorService.awaitTermination(500, TimeUnit.MILLISECONDS)) {
           executorService.shutdownNow();
         }
       } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
         executorService.shutdownNow();
+      } catch (Exception e) {
+        Log.e(
+          "InAppBrowser",
+          "Error shutting down executor: " + e.getMessage()
+        );
       }
     }
 
-    super.dismiss();
+    // Clear any remaining proxied requests
+    synchronized (proxiedRequestsHashmap) {
+      proxiedRequestsHashmap.clear();
+    }
+
+    try {
+      super.dismiss();
+    } catch (Exception e) {
+      Log.e("InAppBrowser", "Error dismissing dialog: " + e.getMessage());
+    }
   }
 
   public void addProxiedRequest(String key, ProxiedRequest request) {
@@ -2453,7 +2967,15 @@ public class WebViewDialog extends Dialog {
   }
 
   private void injectDatePickerFixes() {
-    if (_webView == null || datePickerInjected) {
+    if (_webView == null) {
+      Log.w(
+        "InAppBrowser",
+        "Cannot inject date picker fixes - WebView is null"
+      );
+      return;
+    }
+
+    if (datePickerInjected) {
       return;
     }
 
@@ -2463,25 +2985,43 @@ public class WebViewDialog extends Dialog {
     String script =
       """
       (function() {
-        // Find all date inputs
-        const dateInputs = document.querySelectorAll('input[type="date"]');
-        dateInputs.forEach(input => {
-          // Ensure change events propagate correctly
-          let lastValue = input.value;
-          input.addEventListener('change', () => {
-            if (input.value !== lastValue) {
-              lastValue = input.value;
-              // Dispatch an input event to ensure frameworks detect the change
-              input.dispatchEvent(new Event('input', { bubbles: true }));
-            }
+        try {
+          // Find all date inputs
+          const dateInputs = document.querySelectorAll('input[type="date"]');
+          dateInputs.forEach(input => {
+            // Ensure change events propagate correctly
+            let lastValue = input.value;
+            input.addEventListener('change', () => {
+              try {
+                if (input.value !== lastValue) {
+                  lastValue = input.value;
+                  // Dispatch an input event to ensure frameworks detect the change
+                  input.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+              } catch(e) {
+                console.error('Error in date input change handler:', e);
+              }
+            });
           });
-        });
+        } catch(e) {
+          console.error('Error applying date picker fixes:', e);
+        }
       })();""";
 
     // Execute the script in the WebView
-    _webView.post(() -> _webView.evaluateJavascript(script, null));
-
-    Log.d("InAppBrowser", "Applied minimal date picker fixes");
+    _webView.post(() -> {
+      if (_webView != null) {
+        try {
+          _webView.evaluateJavascript(script, null);
+          Log.d("InAppBrowser", "Applied minimal date picker fixes");
+        } catch (Exception e) {
+          Log.e(
+            "InAppBrowser",
+            "Error injecting date picker fixes: " + e.getMessage()
+          );
+        }
+      }
+    });
   }
 
   /**

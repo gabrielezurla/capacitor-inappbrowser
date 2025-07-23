@@ -2,6 +2,121 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [7.12.1](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.12.0...7.12.1) (2025-07-19)
+
+## [7.12.0](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.11.1...7.12.0) (2025-07-18)
+
+
+### Features
+
+* add Android App Links support handling with deeplinks ([e508a43](https://github.com/Cap-go/capacitor-inappbrowser/commit/e508a43b0517c4e2da05fb09a6936859e1d2588e))
+* update next release tag references ([255b4b0](https://github.com/Cap-go/capacitor-inappbrowser/commit/255b4b00d4cc4efeff3bb477c8a0903c473d710c))
+* update parameter definitions ([3ac8c2a](https://github.com/Cap-go/capacitor-inappbrowser/commit/3ac8c2ac41a6baf1b3d67ce7fc363c151d82686e))
+
+### [7.11.1](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.11.0...7.11.1) (2025-07-17)
+
+
+### Bug Fixes
+
+* lint ([d6ff690](https://github.com/Cap-go/capacitor-inappbrowser/commit/d6ff690b7b205fa97188b059d6d59e6144ffca6f))
+
+## [7.11.0](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.10.12...7.11.0) (2025-07-17)
+
+
+### Features
+
+* add user certificate selection for client authentication (mutual TLS) ([9ada3d8](https://github.com/Cap-go/capacitor-inappbrowser/commit/9ada3d8044127ef291a09c18913a199bc8a469d0))
+
+
+### Bug Fixes
+
+* improve error handling in client certificate request process ([300a42f](https://github.com/Cap-go/capacitor-inappbrowser/commit/300a42f90703e9f71d2afa360ed74eea2b8c17db))
+
+### [7.10.12](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.10.11...7.10.12) (2025-07-17)
+
+### [7.10.11](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.10.10...7.10.11) (2025-07-17)
+
+
+### Bug Fixes
+
+* improve JavaScript error handling and script construction in WebViewDialog and WKWebViewController ([2dd2fde](https://github.com/Cap-go/capacitor-inappbrowser/commit/2dd2fde14f11411060c1543bce4b24456751b094))
+
+### [7.10.10](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.10.9...7.10.10) (2025-07-11)
+
+### [7.10.9](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.10.8...7.10.9) (2025-07-03)
+
+
+### Bug Fixes
+
+* script issue ([78de9b9](https://github.com/Cap-go/capacitor-inappbrowser/commit/78de9b97e58b2a7a786bb952cb4a01ec3389f224))
+
+### [7.10.8](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.10.7...7.10.8) (2025-06-24)
+
+### [7.10.7](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.10.6...7.10.7) (2025-06-24)
+
+
+### Bug Fixes
+
+* lint ([33b0f66](https://github.com/Cap-go/capacitor-inappbrowser/commit/33b0f666085e31af4c564bc5249d4f5f818170dd))
+
+### [7.10.6](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.10.5...7.10.6) (2025-06-24)
+
+
+### Bug Fixes
+
+* add back web interface in android ([dce8e3f](https://github.com/Cap-go/capacitor-inappbrowser/commit/dce8e3fa3b58bdb702cf95fe96630c789bebe4d6))
+
+### [7.10.5](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.10.4...7.10.5) (2025-06-23)
+
+
+### Bug Fixes
+
+* prevent even more crash ([40cf254](https://github.com/Cap-go/capacitor-inappbrowser/commit/40cf254e248fc24f3a60bec6804208abcf1aca93))
+
+### [7.10.4](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.10.3...7.10.4) (2025-06-16)
+
+### [7.10.3](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.10.2...7.10.3) (2025-06-16)
+
+
+### Bug Fixes
+
+* crash ([b79fee1](https://github.com/Cap-go/capacitor-inappbrowser/commit/b79fee1ea6c70371a71f6b3858723f19dae14b64))
+* display topbar android 11 ([a57857a](https://github.com/Cap-go/capacitor-inappbrowser/commit/a57857a08b5166d717e77215b8f80c319787284c))
+* lint ios ([ec0e1ed](https://github.com/Cap-go/capacitor-inappbrowser/commit/ec0e1edfcce4047da5822e430d326646cc1b85db))
+* lint issues + test ([20f0957](https://github.com/Cap-go/capacitor-inappbrowser/commit/20f0957a6e7db2dfd16895b1869df8d1299b1033))
+
+### [7.10.2](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.10.1...7.10.2) (2025-06-16)
+
+
+### Bug Fixes
+
+* nav issue android ([a2e9104](https://github.com/Cap-go/capacitor-inappbrowser/commit/a2e9104f6541b497e69120f657f38d68ce1e1e3d))
+
+### [7.10.1](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.10.0...7.10.1) (2025-06-13)
+
+## [7.10.0](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.9.6...7.10.0) (2025-06-02)
+
+
+### Features
+
+* change default backgroundColor to white on Android ([e3683a2](https://github.com/Cap-go/capacitor-inappbrowser/commit/e3683a2956aaa2f8be70046c7cb322ce881d2197))
+
+### [7.9.6](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.9.5...7.9.6) (2025-05-26)
+
+
+### Bug Fixes
+
+* **deps:** update dependency androidx.window:window to v1.4.0 ([#307](https://github.com/Cap-go/capacitor-inappbrowser/issues/307)) ([696d34a](https://github.com/Cap-go/capacitor-inappbrowser/commit/696d34a950129b7f531f39326ddc47273d55dfb8))
+
+### [7.9.5](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.9.4...7.9.5) (2025-05-26)
+
+### [7.9.4](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.9.3...7.9.4) (2025-05-26)
+
+
+### Bug Fixes
+
+* AppBarLayout for Android 10 ([9063076](https://github.com/Cap-go/capacitor-inappbrowser/commit/906307634e8240049ed3fdef3cca778f7a9f85dc))
+
 ### [7.9.3](https://github.com/Cap-go/capacitor-inappbrowser/compare/7.9.2...7.9.3) (2025-05-08)
 
 
