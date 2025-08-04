@@ -654,6 +654,11 @@ public class InAppBrowserPlugin
       Boolean.TRUE.equals(call.getBoolean("materialPicker", false))
     );
 
+    // Set enabledSafeBottomMargin option
+    options.setEnabledSafeMargin(
+      Boolean.TRUE.equals(call.getBoolean("enabledSafeBottomMargin", false))
+    );
+
     //    options.getToolbarItemTypes().add(ToolbarItemType.RELOAD); TODO: fix this
     options.setCallbacks(
       new WebViewCallbacks() {
@@ -751,6 +756,11 @@ public class InAppBrowserPlugin
     } else {
       Log.d("InAppBrowserPlugin", "No authorized app links provided.");
     }
+
+    // Set Google Pay support option
+    options.setEnableGooglePaySupport(
+      Boolean.TRUE.equals(call.getBoolean("enableGooglePaySupport", false))
+    );
 
     this.getActivity()
       .runOnUiThread(

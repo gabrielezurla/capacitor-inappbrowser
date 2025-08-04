@@ -76,9 +76,10 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler, UIScro
         self.initWebview(isInspectable: isInspectable)
     }
 
-    public init(url: URL, headers: [String: String], isInspectable: Bool, credentials: WKWebViewCredentials? = nil, preventDeeplink: Bool, blankNavigationTab: Bool) {
+    public init(url: URL, headers: [String: String], isInspectable: Bool, credentials: WKWebViewCredentials? = nil, preventDeeplink: Bool, blankNavigationTab: Bool, enabledSafeBottomMargin: Bool) {
         super.init(nibName: nil, bundle: nil)
         self.blankNavigationTab = blankNavigationTab
+        self.enabledSafeBottomMargin = enabledSafeBottomMargin
         self.source = .remote(url)
         self.credentials = credentials
         self.setHeaders(headers: headers)
@@ -109,10 +110,12 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler, UIScro
     open var closeModalOk = ""
     open var closeModalCancel = ""
     open var ignoreUntrustedSSLError = false
+    open var enableGooglePaySupport = false
     var viewWasPresented = false
     var preventDeeplink: Bool = false
     var blankNavigationTab: Bool = false
     var capacitorStatusBar: UIView?
+    var enabledSafeBottomMargin: Bool = false
 
     internal var preShowSemaphore: DispatchSemaphore?
     internal var preShowError: String?
@@ -453,7 +456,7 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler, UIScro
         let script = "window.dispatchEvent(new CustomEvent('messageFromNative', { detail: \(jsonString) }));"
 
         DispatchQueue.main.async {
-            self.webView?.evaluateJavaScript(script) { result, error in
+            self.webView?.evaluateJavaScript(script) { _, error in
                 if let error = error {
                     print("[InAppBrowser] JavaScript evaluation error in postMessageToJS: \(error)")
                 }
@@ -564,6 +567,56 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler, UIScro
         webConfiguration.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
 
         webConfiguration.preferences.setValue(true, forKey: DEV_EXTRA_KEY)
+        // Enhanced configuration for Google Pay support (only when enabled)
+        if enableGooglePaySupport {
+            print("[InAppBrowser] Enabling Google Pay support features for iOS")
+
+            // Allow arbitrary loads in web views for Payment Request API
+            webConfiguration.setValue(true, forKey: "allowsArbitraryLoads")
+
+            // Enable JavaScript popup support for Google Pay
+            webConfiguration.preferences.javaScriptCanOpenWindowsAutomatically = true
+
+            // Inject Google Pay support script
+            let googlePayScript = WKUserScript(
+                source: """
+                console.log('[InAppBrowser] Injecting Google Pay support for iOS');
+
+                // Enhanced window.open for Google Pay
+                (function() {
+                    const originalWindowOpen = window.open;
+                    window.open = function(url, target, features) {
+                        console.log('[InAppBrowser iOS] Enhanced window.open called:', url, target, features);
+
+                        // For Google Pay URLs, handle popup properly
+                        if (url && (url.includes('google.com/pay') || url.includes('accounts.google.com'))) {
+                            console.log('[InAppBrowser iOS] Google Pay popup detected');
+                            return originalWindowOpen.call(window, url, target || '_blank', features);
+                        }
+
+                        return originalWindowOpen.call(window, url, target, features);
+                    };
+
+                    // Add Cross-Origin-Opener-Policy meta tag if not present
+                    if (!document.querySelector('meta[http-equiv="Cross-Origin-Opener-Policy"]')) {
+                        const meta = document.createElement('meta');
+                        meta.setAttribute('http-equiv', 'Cross-Origin-Opener-Policy');
+                        meta.setAttribute('content', 'same-origin-allow-popups');
+                        if (document.head) {
+                            document.head.appendChild(meta);
+                            console.log('[InAppBrowser iOS] Added Cross-Origin-Opener-Policy meta tag');
+                        }
+                    }
+
+                    console.log('[InAppBrowser iOS] Google Pay support enhancements complete');
+                })();
+                """,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+            userContentController.addUserScript(googlePayScript)
+        }
+
         let webView = WKWebView(frame: .zero, configuration: webConfiguration)
 
         //        if webView.responds(to: Selector(("setInspectable:"))) {
@@ -577,19 +630,23 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler, UIScro
             // Fallback on earlier versions
         }
 
-        if self.blankNavigationTab {
-            // First add the webView to view hierarchy
-            self.view.addSubview(webView)
+        // First add the webView to view hierarchy
+        self.view.addSubview(webView)
 
-            // Then set up constraints
-            webView.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                webView.topAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.topAnchor),
-                webView.leadingAnchor.constraint(equalTo: self.view.leadingAnchor),
-                webView.trailingAnchor.constraint(equalTo: self.view.trailingAnchor),
-                webView.bottomAnchor.constraint(equalTo: self.view.bottomAnchor)
-            ])
+        // Then set up constraints
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        var bottomPadding = self.view.bottomAnchor
+
+        if self.enabledSafeBottomMargin {
+            bottomPadding = self.view.safeAreaLayoutGuide.bottomAnchor
         }
+
+        NSLayoutConstraint.activate([
+            webView.topAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.topAnchor),
+            webView.leadingAnchor.constraint(equalTo: self.view.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: self.view.trailingAnchor),
+            webView.bottomAnchor.constraint(equalTo: bottomPadding)
+        ])
 
         webView.uiDelegate = self
         webView.navigationDelegate = self
@@ -620,7 +677,9 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler, UIScro
         self.view.addConstraints(NSLayoutConstraint.constraints(withVisualFormat: "V:|-[webView]-0-|", metrics: nil, views: ["webView": webView]))
 
         if !self.blankNavigationTab {
-            self.view = webView
+            self.view.addSubview(webView)
+            // Then set up constraints
+            webView.translatesAutoresizingMaskIntoConstraints = false
         }
         self.webView = webView
 
@@ -685,7 +744,8 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler, UIScro
 
     override open func viewWillLayoutSubviews() {
         restateViewHeight()
-        if self.currentViewHeight != nil {
+        // Don't override frame height when enabledSafeBottomMargin is true, as it would override our constraints
+        if self.currentViewHeight != nil && !self.enabledSafeBottomMargin {
             self.view.frame.size.height = self.currentViewHeight!
         }
     }

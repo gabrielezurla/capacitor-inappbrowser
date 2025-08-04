@@ -290,6 +290,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         let isInspectable = call.getBool("isInspectable", false)
         let preventDeeplink = call.getBool("preventDeeplink", false)
         let isAnimated = call.getBool("isAnimated", true)
+        let enabledSafeBottomMargin = call.getBool("enabledSafeBottomMargin", false)
 
         // Validate preShowScript requires isPresentAfterPageLoad
         if call.getString("preShowScript") != nil && !call.getBool("isPresentAfterPageLoad", false) {
@@ -349,6 +350,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         // }
 
         let ignoreUntrustedSSLError = call.getBool("ignoreUntrustedSSLError", false)
+        let enableGooglePaySupport = call.getBool("enableGooglePaySupport", false)
 
         self.isPresentAfterPageLoad = call.getBool("isPresentAfterPageLoad", false)
         let showReloadButton = call.getBool("showReloadButton", false)
@@ -361,7 +363,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
 
-            self.webViewController = WKWebViewController.init(url: url, headers: headers, isInspectable: isInspectable, credentials: credentials, preventDeeplink: preventDeeplink, blankNavigationTab: toolbarType == "blank")
+            self.webViewController = WKWebViewController.init(url: url, headers: headers, isInspectable: isInspectable, credentials: credentials, preventDeeplink: preventDeeplink, blankNavigationTab: toolbarType == "blank", enabledSafeBottomMargin: enabledSafeBottomMargin)
 
             guard let webViewController = self.webViewController else {
                 call.reject("Failed to initialize WebViewController")
@@ -469,6 +471,9 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             webViewController.preShowScript = call.getString("preShowScript")
             webViewController.websiteTitleInNavigationBar = call.getBool("visibleTitle", true)
             webViewController.ignoreUntrustedSSLError = ignoreUntrustedSSLError
+
+            // Set Google Pay support
+            webViewController.enableGooglePaySupport = enableGooglePaySupport
 
             // Set text zoom if specified
             if let textZoom = call.getInt("textZoom") {
@@ -689,7 +694,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
 
-            self.webViewController = WKWebViewController.init(url: url, headers: headers, isInspectable: isInspectable, credentials: credentials, preventDeeplink: preventDeeplink, blankNavigationTab: true)
+            self.webViewController = WKWebViewController.init(url: url, headers: headers, isInspectable: isInspectable, credentials: credentials, preventDeeplink: preventDeeplink, blankNavigationTab: true, enabledSafeBottomMargin: false)
 
             guard let webViewController = self.webViewController else {
                 call.reject("Failed to initialize WebViewController")
